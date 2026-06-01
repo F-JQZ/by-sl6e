@@ -11,7 +11,7 @@ import math
 # ============================================================
 SERVER_IP   = "194.45.197.196"
 SERVER_PORT = "30120"
-GUILD_ID    = 123456789012345678   # <-- ضع آيدي سيرفرك هنا
+GUILD_ID    = 1510735912185630812  # <-- ضع آيدي سيرفرك هنا
 
 BASE_URL        = f"http://{SERVER_IP}:{SERVER_PORT}/players.json"
 INFO_URL        = f"http://{SERVER_IP}:{SERVER_PORT}/info.json"

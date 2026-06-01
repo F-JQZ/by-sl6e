@@ -4,19 +4,18 @@ from discord import app_commands
 import aiohttp
 import json
 import os
-import asyncio
 
 # --- إعدادات الاتصال بالسيرفر ---
 SERVER_IP = "194.45.197.196" 
 SERVER_PORT = "30120"  
-CFX_ID = ""  # 💡 نصيحة: إذا استمر الخطأ، ضع هنا الـ Cfx Join ID الخاص بسيرفرك (الأحرف التي بعد cfx.re/join/)
+CFX_ID = ""  # 💡 إذا استمر فشل الجلب، ضع هنا الـ Cfx Join ID (الأحرف بعد cfx.re/join/)
 
 if CFX_ID:
     BASE_URL = f"https://servers-live.fivem.net/api/servers/single/{CFX_ID}"
 else:
     BASE_URL = f"http://{SERVER_IP}:{SERVER_PORT}"
 
-GUILD_ID = 123456789012345678  # <--- ضع آيدي سيرفر الديسكورد حقك هنا
+GUILD_ID = 123456789012345678  # <--- ضع آيدي سيرفر الديسكورد حقك هنا (أرقام فقط)
 
 class FiveMBot(commands.Bot):
     def __init__(self):
@@ -30,25 +29,27 @@ class FiveMBot(commands.Bot):
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
-        print(f"✅ تم بنجاح مزامنة الأوامر الفورية.")
+        print("✅ تم بنجاح مزامنة الأوامر الفورية في السيرفر.")
 
 bot = FiveMBot()
 
 @bot.event
 async def on_ready():
-    print(f"✅ البوت متصل الآن كـ: {bot.user.name}")
+    print(f"✅ البوت متصل الآن وشغال باسم: {bot.user.name}")
+    await bot.change_presence(activity=discord.Game(name="/players | /id"))
 
-# دالة الجلب مع تحديد وقت انتظار صارم (3 ثوانٍ فقط) لتجنب تعليق الديسكورد
+# دالة الجلب الآمنة لمنع الـ Crash
 async def fetch_fivem_data(endpoint):
     url = BASE_URL if CFX_ID else f"{BASE_URL}/{endpoint}"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     
-    async with aiohttp.ClientSession() as session:
+    # تحديد وقت انتظار أقصاه 5 ثوانٍ للاتصال
+    timeout = aiohttp.ClientTimeout(total=5)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
-            # وضعنا الـ timeout هنا 4 ثوانٍ كحد أقصى
-            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=4)) as response:
+            async with session.get(url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
                     if CFX_ID and endpoint == "players.json":
@@ -56,18 +57,18 @@ async def fetch_fivem_data(endpoint):
                     return data
                 return None
         except Exception as e:
-            print(f"❌ خطأ أثناء الاتصال بالـ API: {e}")
+            print(f"❌ خطأ الـ API (السيرفر لم يستجب في الوقت المحدد): {e}")
             return None
 
 # --- أمر /players ---
 @bot.tree.command(name="players", description="يعرض قائمة اللاعبين المتواجدين في السيرفر حالياً")
 async def players(interaction: discord.Interaction):
-    # 1. الرد المبدئي الفوري لإعلام الديسكورد أن البوت شغال (يمنع رسالة التطبيق لم يستجب)
-    await interaction.response.send_message("⏳ جاري سحب قائمة اللاعبين من السيرفر، يرجى الانتظار...", ephemeral=True)
+    # إعلام ديسكورد فوراً بأن البوت جاري معالجة الطلب (تمنع "application did not respond" وتمنع الـ Crash)
+    await interaction.response.defer(thinking=True)
     
     players_data = await fetch_fivem_data("players.json")
     if players_data is None:
-        await interaction.edit_original_response(content="❌ **فشل في الاتصال بالسيرفر.**\nتأكد من أن السيرفر شغال، أو جرب استخدام الـ `CFX_ID` داخل الكود بدلاً من الـ IP المباشر بسبب جدار الحماية.")
+        await interaction.followup.send("❌ **فشل في الاتصال بالسيرفر.**\nتأكد من الـ IP والـ Port، أو جرب استخدام الـ `CFX_ID` إذا كان السيرفر محمي.")
         return
 
     total_players = len(players_data)
@@ -85,18 +86,18 @@ async def players(interaction: discord.Interaction):
     )
     embed.add_field(name="Player List", value=f"```gml\n{player_list_text}```", inline=False)
     
-    # تعديل الرسالة المبدئية وإرسال الـ Embed المنسق
-    await interaction.edit_original_response(content=None, embed=embed)
+    # إرسال الرد النهائي
+    await interaction.followup.send(embed=embed)
 
 # --- أمر /id ---
 @bot.tree.command(name="id", description="البحث عن معلومات لاعب محدد داخل السيرفر بواسطة الـ ID")
 @app_commands.describe(server_id="ايدي اللاعب داخل السيرفر (Server ID)")
 async def id_search(interaction: discord.Interaction, server_id: int):
-    await interaction.response.send_message(f"⏳ جاري البحث عن اللاعب صاحب الأيدي `{server_id}`...", ephemeral=True)
+    await interaction.response.defer(thinking=True)
     
     players_data = await fetch_fivem_data("players.json")
     if players_data is None:
-        await interaction.edit_original_response(content="❌ **فشل في جلب البيانات من السيرفر.**")
+        await interaction.followup.send("❌ **فشل في جلب البيانات من السيرفر.**")
         return
 
     target_player = None
@@ -106,7 +107,7 @@ async def id_search(interaction: discord.Interaction, server_id: int):
             break
 
     if not target_player:
-        await interaction.edit_original_response(content=f"❌ لم يتم العثور على لاعب بالـ ID: `{server_id}` متصل حالياً في السيرفر.")
+        await interaction.followup.send(f"❌ لم يتم العثور على لاعب بالـ ID: `{server_id}` متصل حالياً.")
         return
 
     identifiers = target_player.get('identifiers', [])
@@ -124,7 +125,7 @@ async def id_search(interaction: discord.Interaction, server_id: int):
     else:
         embed.set_footer(text=f"Server IP: {SERVER_IP}:{SERVER_PORT}")
         
-    await interaction.edit_original_response(content=None, embed=embed)
+    await interaction.followup.send(embed=embed)
 
 TOKEN = os.environ.get('DISCORD_TOKEN')
 if TOKEN:
